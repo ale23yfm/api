@@ -1,72 +1,80 @@
 <?php
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Methods: PUT, OPTIONS");
 header("Access-Control-Allow-Headers: {$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}");
+header('Content-Type: application/json; charset=utf-8');
 
-$data = file_get_contents('php://input');
-$data = json_decode($data);
+require_once '../config.php';
 
-$server = '172.18.0.10:8983';
 $core = 'auth';
 
-$qs = '?';
-$qs = $qs . 'omitHeader=true';
-$qs = $qs . '&';
-$qs = $qs . 'q.op=OR';
-$qs = $qs . '&';
-$qs = $qs . 'q=id%3A';
+$qs = '?omitHeader=true&q.op=OR&q=id%3A';
 
-if (isset($data[0]->id))
-{
-  $user = $data[0]->id;
-  $user = urlencode($user);
+// Retrieve parameters from the query string
+$id = isset($_GET['id']) ? trim($_GET['id']) : null;
+$urlParam = isset($_GET['url']) ? trim($_GET['url']) : null;
+$company = isset($_GET['company']) ? trim($_GET['company']) : null;
+$logo = isset($_GET['logo']) ? trim($_GET['logo']) : null;
+$apikey = isset($_GET['apikey']) ? trim($_GET['apikey']) : null;
 
-  $url =  'http://' . $server . '/solr/' . '/select'. $qs . $user;
-
-  $json = file_get_contents($url);
-  $json = json_decode($json);
-  unset($json->response->docs[0]->_version_);
-
-  if (isset($data[0]->id)) {$json->response->docs[0]->id = $data[0]->id;}
-  if (isset($data[0]->url)) {$json->response->docs[0]->url = $data[0]->url;}
-  if (isset($data[0]->company)) {$json->response->docs[0]->company = $data[0]->company;}
-  if (isset($data[0]->logo)) {$json->response->docs[0]->logo = $data[0]->logo;}
-  if (isset($data[0]->apikey)) { $json->response->docs[0]->apikey = $data[0]->apikey;}
-
-  //print_r ($json->response->docs[0]);
-
-
-  $method = 'POST';
-  $command ='/update';
-
-  $qs = '?';
-  $qs = $qs . '_=1617366504771';
-  $qs = $qs . '&';
-  $qs = $qs . 'commitWithin=1000';
-  $qs = $qs . '&';
-  $qs = $qs . 'overwrite=true';
-  $qs = $qs . '&';
-  $qs = $qs . 'wt=json';
-
-  $data ="[".json_encode($json->response->docs[0])."]" ;
-
-  $options = array(
-    'http' => array(
-      'header'  => "Content-type: application/json\r\n",
-      'method'  => 'POST',
-      'content' => $data
-    )
-  );
-
-  $context  = stream_context_create($options);
-
-  $url =  'http://' . $server . $core . $command . $qs;
-  
-  $result = file_get_contents($url, false, $context);
-
-  if ($result === FALSE) { /* Handle error */ }
-    
-  echo $data;
+if (!$id) {
+    http_response_code(400);
+    echo json_encode(["error" => "Missing required parameter: id"]);
+    exit;
 }
 
-?>
+$id = urlencode($id);
+$url = 'http://' . $server . '/solr/' . $core . '/select' . $qs . $id;
+
+$string = @file_get_contents($url);
+if ($string === FALSE) {
+    http_response_code(503);
+    echo json_encode([
+        "error" => "SOLR server in DEV is down",
+        "code" => 503
+    ]);
+    exit;
+}
+
+$json = json_decode($string);
+
+if (!isset($json->response->docs[0])) {
+    http_response_code(404);
+    echo json_encode(["error" => "User not found"]);
+    exit;
+}
+
+$doc = $json->response->docs[0];
+
+// Remove version field if present
+unset($doc->_version_);
+
+// Update user fields if provided
+if ($urlParam) $doc->url = $urlParam;
+if ($company) $doc->company = $company;
+if ($logo) $doc->logo = $logo;
+if ($apikey) $doc->apikey = $apikey;
+
+// Convert updated document into JSON
+$data = json_encode([$doc]);
+
+$options = [
+    'http' => [
+        'header'  => "Content-type: application/json\r\n",
+        'method'  => 'POST',
+        'content' => $data
+    ]
+];
+
+$context = stream_context_create($options);
+$url = 'http://' . $server . '/solr/' . $core . '/update?commitWithin=1000&overwrite=true&wt=json';
+
+$result = file_get_contents($url, false, $context);
+
+if ($result === FALSE) {
+    http_response_code(500);
+    echo json_encode(["error" => "Failed to update Solr."]);
+    exit;
+}
+
+echo $data;

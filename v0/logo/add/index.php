@@ -1,49 +1,51 @@
 <?php
 header("Access-Control-Allow-Origin: *");
-
-/**
- * @OA\Post(
- *     path="/v0/logo/add/",
- *     tags={"logo"},
- *     summary="Add new logos",
- *     @OA\RequestBody(
- *         required=true,
- *         @OA\MediaType(
- *             mediaType="application/json",
- *             @OA\Schema(
- *                 type="array",
- *                 @OA\Items(
- *                     type="object",
- *                     @OA\Property(property="id", type="string", example="Nova"),
- *                     @OA\Property(property="logo", type="string", example="https://e-infra.ro/wp-content/uploads/2023/02/logotype-nova.jpg")
- *                 )
- *             )
- *         )
- *     ),
- *     @OA\Response(
- *         response="200",
- *         description="Success"
- *     )
- * )
- */
+header('Content-Type: application/json; charset=utf-8');
 
 $method = 'POST';
-$server = '172.18.0.10:8983';
+
+require_once '../../config.php';
+
 $core  = 'auth';
 $command = '/update';
 
 $qs = '?';
-$qs = $qs . '_=1617366504771';
-$qs = $qs . '&';
-$qs = $qs . 'commitWithin=1000';
-$qs = $qs . '&';
-$qs = $qs . 'overwrite=true';
-$qs = $qs . '&';
-$qs = $qs . 'wt=json';
+$qs .= '_=1617366504771';
+$qs .= '&commitWithin=1000';
+$qs .= '&overwrite=true';
+$qs .= '&wt=json';
 
-$url = 'http://' . $server . $core . $command . $qs;
+$url = 'http://' . $server . '/solr/' . $core . $command . $qs;
 
-$data = file_get_contents('php://input');
+$string = @file_get_contents($url);
+if ($string === FALSE) {
+    http_response_code(503);
+    echo json_encode([
+        "error" => "SOLR server in DEV is down",
+        "code" => 503
+    ]);
+    exit;
+}
+
+// Fetch parameters from query string
+$id = isset($_GET['id']) ? trim(urlencode($_GET['id'])) : null;
+$logo = isset($_GET['logo']) ? trim(htmlspecialchars($_GET['logo'])) : null;
+
+
+// Validate required fields
+if (!$id || !$logo) {
+    http_response_code(400); // Bad Request
+    echo json_encode(["error" => "Missing required parameters"]);
+    exit;
+}
+
+// Create data for Solr
+$item = new stdClass();
+$item->id = $id;
+$item->logo = $logo;
+
+
+$data = json_encode([$item]);
 
 $options = array(
     'http' => array(
@@ -57,5 +59,10 @@ $context  = stream_context_create($options);
 $result = file_get_contents($url, false, $context);
 
 if ($result === FALSE) {
-    echo $result;
+    http_response_code(500); // Internal Server Error
+    echo json_encode(["error" => "Failed to insert data into Solr"]);
+    exit;
 }
+
+// Return success response
+echo json_encode(["success" => "Data successfully inserted into Solr"]);

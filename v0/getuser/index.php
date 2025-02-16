@@ -1,14 +1,15 @@
 <?php
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST');
+header('Access-Control-Allow-Methods: GET');
 header('Access-Control-Allow-Headers: *');
+header('Content-Type: application/json; charset=utf-8');
 
-if (isset($_GET['user']))
-{
-  $user = $_GET['user'];
-  $user = urlencode($user);
+if (isset($_GET['ID'])) {
+  $id = $_GET['ID'];
+  $id = urlencode($id);
 
-  $server = '172.18.0.10:8983';
+  require_once '../config.php';
+
   $core = 'auth';
 
   $qs = '?';
@@ -18,12 +19,34 @@ if (isset($_GET['user']))
   $qs = $qs . '&';
   $qs = $qs . 'q=id%3A';
 
-  $url = 'http://' . $server . '/solr/' . $core . '/select' . $qs . $user;
+  $url = 'http://' . $server . '/solr/' . $core . '/select' . $qs . $id;
 
-  $json = file_get_contents($url);
-  $json = json_decode($json);
+  $string = @file_get_contents($url);
+  if ($string === FALSE) {
+    http_response_code(503);
+    echo json_encode([
+      "error" => "SOLR server in DEV is down",
+      "code" => 503
+    ]);
+    exit;
+  }
+  $json = json_decode($string);
+
+  if (empty($json->response->docs)) {
+    http_response_code(404);
+    echo json_encode(["error" => "No user found"]);
+    exit;
+  }
+
+  $id = urldecode($_GET['ID']); // Decodează în caz că e URL encoded
+
+  if (!filter_var($id, FILTER_VALIDATE_EMAIL) && !preg_match('/^[a-zA-Z0-9_.-]+$/', $id)) {
+    http_response_code(400);
+    echo json_encode(["error" => "Invalid ID format", "received" => $id]);
+    exit;
+  }
+
+
   unset($json->response->docs[0]->_version_);
   echo json_encode($json->response->docs[0]);
 }
-
-?>

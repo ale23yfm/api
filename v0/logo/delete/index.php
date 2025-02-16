@@ -1,68 +1,63 @@
 <?php
 header("Access-Control-Allow-Origin: *");
+header('Content-Type: application/json; charset=utf-8');
 
-/**
- * @OA\Post(
- *     path="/v0/logo/delete/",
- *     tags={"logo"},
- *     summary="Delete a logo by company name",
- *     operationId="deleteLogoByCompany",
- *     @OA\Parameter(
- *         name="company",
- *         required=true,
- *         description="The name of the company whose logo will be deleted",
- *         example="ziramarketing",
- *         @OA\Schema(
- *             type="string"
- *         )
- *     ),
- *     @OA\Response(
- *         response="200",
- *         description="Successful operation. The logo for the specified company has been deleted."
- *     ),
- *     @OA\Response(
- *         response="404",
- *         description="Company not found. The specified company name does not exist."
- *     ),
- *     @OA\Response(
- *         response="400",
- *         description="Bad request. The request was malformed or missing required parameters."
- *     )
- * )
- */
+require_once '../../config.php';
 
-$method = 'POST';
-$server = '172.18.0.10:8983';
-$core  = 'auth';
-$command ='/update';
+$core = 'auth'; // Core name
+$command = '/update';
 
-$qs = '?';
-$qs = $qs . '_=1617366504771';
-$qs = $qs . '&';
-$qs = $qs . 'commitWithin=1000';
-$qs = $qs . '&';
-$qs = $qs . 'overwrite=true';
-$qs = $qs . '&';
-$qs = $qs . 'wt=json';
+$qs = '?_=' . time(); // Use current time as a cache buster
+$qs .= '&commitWithin=1000';
+$qs .= '&wt=json';
 
-$url = 'http://' . $server . $core . $command . $qs;
- 
-$company = $_POST['company'];
-$data = "{'delete': {'query': 'id:".$company."'}}";
+$url = 'http://' . $server . '/solr/' . $core . $command . $qs;
 
-$options = array(
-    'http' => array(
-        'header'  => "Content-type: application/json\r\n",
-        'method'  => 'POST',
-        'content' => $data
-    )
-);
-
-$context  = stream_context_create($options);
-$result = file_get_contents($url, false, $context);
-
-if ($result === FALSE) {
-    echo $result; 
+$string = @file_get_contents($url);
+if ($string === FALSE) {
+    http_response_code(503);
+    echo json_encode([
+        "error" => "SOLR server in DEV is down",
+        "code" => 503
+    ]);
+    exit;
 }
 
-?>
+// Get the required parameters
+$id = $_GET['id'] ?? ''; // Document ID to update
+$field = 'url';          // Field to remove (hardcoded for this endpoint)
+
+if (empty($id)) {
+    header("HTTP/1.1 400 Bad Request");
+    echo json_encode(['error' => 'Document ID is required', 'code' => 400]);
+    exit;
+}
+
+// Create the atomic update payload
+$data = json_encode([
+    [
+        "id" => $id,
+        $field => ["set" => null] // Use Solr's atomic update syntax to remove the field
+    ]
+]);
+
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $url);
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Content-Type: application/json',
+    'Content-Length: ' . strlen($data)
+]);
+
+$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+
+if ($http_code >= 400) {
+    header("HTTP/1.1 " . $http_code . " Bad Request");
+    echo $response;
+    exit;
+}
+
+echo $response;

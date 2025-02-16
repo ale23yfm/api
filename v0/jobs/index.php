@@ -1,29 +1,9 @@
 <?php
 header("Access-Control-Allow-Origin: *");
-/**
- * @OA\Get(
- *     path="/v0/jobs/",
- *     tags={"machine learning"},
- *     operationId="getJobs",
- *     @OA\Parameter(
- *         in="query",
- *         name="start",
- *         @OA\Schema(type="string"),
- *         example="100"
- *     ),
- *     @OA\Response(
- *         response="200",
- *         description="Success"
- *     )
- * )
- */
+header('Content-Type: application/json; charset=utf-8');
 
-if (isset($_GET["start"])) {
-    $start = $_GET["start"];
-    $qs .= "&start=" . $start;
-}
+require_once '../config.php';
 
-$server = '172.18.0.10:8983';
 $core = "jobs";
 
 $qs = '?';
@@ -41,7 +21,27 @@ $qs = $qs . 'omitHeader=true';
 $qs = $qs . '&';
 $qs = $qs . 'useParams=';
 
-$url = 'http://' . $server . '/solr/' . $core . '/select'. $qs;
+$url = 'http://' . $server . '/solr/' . $core . '/select' . $qs;
+
+$string = @file_get_contents($url);
+if ($string === FALSE) {
+    http_response_code(503);
+    echo json_encode([
+        "error" => "SOLR server in DEV is down",
+        "code" => 503
+    ]);
+    exit;
+}
+
+if (isset($_GET["start"])) {
+    $start = $_GET["start"];
+    if (!is_numeric($start) || $start <= 0) {
+        // Return a JSON error response if start is not a positive number
+        echo json_encode(["error" => "You must type a positive number"]);
+        exit;
+    }
+    $qs .= "&start=" . $start;
+}
 
 $json = file_get_contents($url);
 echo $json;
